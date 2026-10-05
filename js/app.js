@@ -26,6 +26,23 @@
 ================================================================
 */
 
+// =====================================================
+// CONFIGURAÇÃO DO SUPABASE
+// =====================================================
+// URL do projeto Supabase
+// Substitua pelo endereço do seu projeto.
+const SUPABASE_URL = "https://supabase.com/dashboard/project/qnfepgvknhjblcprhamn";
+
+// Chave pública do projeto
+// Utilize somente a chave pública destinada ao cliente.
+// NÃO coloque aqui a Service Role Key.
+const SUPABASE_ANON_KEY = "sb_publishable_GQCsbEhlgZN8NbTGuhMmZA_6SUAuAxT";
+
+// Cria a conexão com o Supabase
+const supabaseClient = supabase.createClient(
+SUPABASE_URL,
+SUPABASE_ANON_KEY
+);
 
 // ================================================================
 // CONFIGURAÇÕES
