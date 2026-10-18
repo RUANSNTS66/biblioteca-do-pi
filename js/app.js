@@ -1,1561 +1,1334 @@
-/*
-================================================================
- SISTEMA DE BIBLIOTECA
-================================================================
-
- Tecnologias:
- - HTML
- - CSS
- - JavaScript
- - AlaSQL
-
- Objetivo:
- Demonstrar de forma simples como um formulário do front-end
- pode realizar operações SQL em um banco executado no navegador.
-
- Tabelas utilizadas:
- 1. livros
- 2. leitores
- 3. emprestimos
-
- Observação:
- O AlaSQL funciona no navegador.
- O localStorage é utilizado para guardar os dados localmente
- e permitir que eles continuem disponíveis após recarregar a
- página no mesmo navegador.
-================================================================
-*/
-
 // =====================================================
 // CONFIGURAÇÃO DO SUPABASE
 // =====================================================
+
 // URL do projeto Supabase
 // Substitua pelo endereço do seu projeto.
-const SUPABASE_URL = "https://supabase.com/dashboard/project/qnfepgvknhjblcprhamn";
+const SUPABASE_URL = "https://qnfepgvknhjblcprhamn.supabase.co";
+
 
 // Chave pública do projeto
 // Utilize somente a chave pública destinada ao cliente.
 // NÃO coloque aqui a Service Role Key.
 const SUPABASE_ANON_KEY = "sb_publishable_GQCsbEhlgZN8NbTGuhMmZA_6SUAuAxT";
 
+
 // Cria a conexão com o Supabase
 const supabaseClient = supabase.createClient(
-SUPABASE_URL,
-SUPABASE_ANON_KEY
+    SUPABASE_URL,
+    SUPABASE_ANON_KEY
 );
 
-// ================================================================
-// CONFIGURAÇÕES
-// ================================================================
-
-// Nome utilizado para identificar os dados no localStorage.
-const CHAVE_STORAGE = "biblioteca_aulasql_simples_v1";
-
-// Indica se o banco já foi criado.
-let bancoInicializado = false;
 
 
-// ================================================================
-// FUNÇÕES AUXILIARES
-// ================================================================
+// =====================================================
+// CONTROLE DAS SEÇÕES
+// =====================================================
 
-/*
-    Escapa aspas simples antes de colocar um texto dentro
-    de uma instrução SQL.
+function mostrarSecao(secao) {
 
-    Exemplo:
-    O'Connor
+    // Esconde todas as seções
+    document.getElementById("livros").style.display = "none";
 
-    será convertido para:
+    document.getElementById("usuarios").style.display = "none";
 
-    O''Connor
-*/
-function protegerTexto(texto) {
+    document.getElementById("emprestimos").style.display = "none";
 
-    if (texto === null || texto === undefined) {
-        return "";
-    }
 
-    return String(texto).replace(/'/g, "''");
+    // Mostra somente a seção escolhida
+    document.getElementById(secao).style.display = "block";
+
 }
 
 
-/*
-    Evita que textos cadastrados pelo usuário sejam interpretados
-    como HTML quando forem exibidos na tabela.
-*/
-function protegerHTML(texto) {
-
-    return String(texto ?? "")
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#039;");
-}
+// Mostra a seção de livros inicialmente
+mostrarSecao("livros");
 
 
-/*
-    Mostra uma mensagem rápida na tela.
-*/
-function mostrarMensagem(texto, erro = false) {
 
-    const elemento = document.getElementById("mensagem");
+// =====================================================
+// LIVROS
+// =====================================================
 
-    elemento.textContent = texto;
+async function carregarLivros() {
 
-    elemento.className = "mensagem exibir";
+    const { data, error } = await supabaseClient
 
-    if (erro) {
-        elemento.classList.add("erro");
-    }
+        .from("livros")
 
-    clearTimeout(mostrarMensagem.timer);
+        .select("*")
 
-    mostrarMensagem.timer = setTimeout(() => {
-        elemento.className = "mensagem";
-    }, 3000);
-}
-
-
-/*
-    Descobre o próximo ID disponível.
-
-    Exemplo:
-
-    Se a tabela possui:
-    1
-    2
-    3
-
-    o próximo ID será:
-    4
-*/
-function proximoId(tabela) {
-
-    // Em vez de usar MAX(id) com alias, buscamos o maior ID
-    // pela ordenação. Isso evita incompatibilidades do parser
-    // do AlaSQL com algumas expressões agregadas.
-    const resultado = alasql(`
-        SELECT id
-        FROM ${tabela}
-        ORDER BY id DESC
-    `);
-
-    if (resultado.length === 0) {
-        return 1;
-    }
-
-    return Number(resultado[0].id) + 1;
-}
-
-
-// ================================================================
-// PERSISTÊNCIA NO LOCALSTORAGE
-// ================================================================
-
-/*
-    Copia os dados das tabelas do AlaSQL para o localStorage.
-
-    Isso não transforma o localStorage em um banco SQL.
-    O banco continua sendo o AlaSQL.
-
-    O localStorage serve apenas para manter os dados quando
-    a página for recarregada.
-*/
-function salvarDados() {
-
-    const dados = {
-
-        livros: alasql(`
-            SELECT *
-            FROM livros
-        `),
-
-        leitores: alasql(`
-            SELECT *
-            FROM leitores
-        `),
-
-        emprestimos: alasql(`
-            SELECT *
-            FROM emprestimos
-        `)
-    };
-
-    localStorage.setItem(
-        CHAVE_STORAGE,
-        JSON.stringify(dados)
-    );
-}
-
-
-/*
-    Recupera os dados que estavam armazenados no localStorage
-    e insere novamente nas tabelas do AlaSQL.
-*/
-function restaurarDados() {
-
-    const dadosSalvos = localStorage.getItem(CHAVE_STORAGE);
-
-    // Se não existe armazenamento anterior,
-    // não há nada para restaurar.
-    if (!dadosSalvos) {
-        return false;
-    }
-
-    try {
-
-        const dados = JSON.parse(dadosSalvos);
-
-
-        // --------------------------------------------------------
-        // RESTAURA LIVROS
-        // --------------------------------------------------------
-
-        (dados.livros || []).forEach(livro => {
-
-            alasql(`
-                INSERT INTO livros
-                (id, titulo, autor, ano, categoria)
-                VALUES (
-                    ${Number(livro.id)},
-                    '${protegerTexto(livro.titulo)}',
-                    '${protegerTexto(livro.autor)}',
-                    ${Number(livro.ano) || 0},
-                    '${protegerTexto(livro.categoria)}'
-                )
-            `);
+        .order("titulo", {
+            ascending: true
         });
 
 
-        // --------------------------------------------------------
-        // RESTAURA LEITORES
-        // --------------------------------------------------------
-
-        (dados.leitores || []).forEach(leitor => {
-
-            alasql(`
-                INSERT INTO leitores
-                (id, nome, email, curso)
-                VALUES (
-                    ${Number(leitor.id)},
-                    '${protegerTexto(leitor.nome)}',
-                    '${protegerTexto(leitor.email)}',
-                    '${protegerTexto(leitor.curso)}'
-                )
-            `);
-        });
-
-
-        // --------------------------------------------------------
-        // RESTAURA EMPRÉSTIMOS
-        // --------------------------------------------------------
-
-        (dados.emprestimos || []).forEach(emprestimo => {
-
-            alasql(`
-                INSERT INTO emprestimos
-                (id, livro_id, leitor_id, data_emprestimo, status)
-                VALUES (
-                    ${Number(emprestimo.id)},
-                    ${Number(emprestimo.livro_id)},
-                    ${Number(emprestimo.leitor_id)},
-                    '${protegerTexto(emprestimo.data_emprestimo)}',
-                    '${protegerTexto(emprestimo.status)}'
-                )
-            `);
-        });
-
-
-        return true;
-
-    } catch (erro) {
-
-        console.error("Erro ao restaurar os dados:", erro);
-
-        // Se os dados estiverem corrompidos,
-        // remove o armazenamento para permitir uma nova inicialização.
-        localStorage.removeItem(CHAVE_STORAGE);
-
-        return false;
-    }
-}
-
-
-// ================================================================
-// CRIAÇÃO DO BANCO DE DADOS
-// ================================================================
-
-/*
-    Cria as três tabelas utilizadas pelo sistema.
-
-    SQL utilizado:
-
-    CREATE TABLE livros
-    CREATE TABLE leitores
-    CREATE TABLE emprestimos
-*/
-function criarBanco() {
-
-    try {
-
-        // --------------------------------------------------------
-        // TABELA LIVROS
-        // --------------------------------------------------------
-
-        alasql(`
-            CREATE TABLE livros (
-                id INT PRIMARY KEY,
-                titulo STRING,
-                autor STRING,
-                ano INT,
-                categoria STRING
-            )
-        `);
-
-
-        // --------------------------------------------------------
-        // TABELA LEITORES
-        // --------------------------------------------------------
-
-        alasql(`
-            CREATE TABLE leitores (
-                id INT PRIMARY KEY,
-                nome STRING,
-                email STRING,
-                curso STRING
-            )
-        `);
-
-
-        // --------------------------------------------------------
-        // TABELA EMPRÉSTIMOS
-        // --------------------------------------------------------
-
-        alasql(`
-            CREATE TABLE emprestimos (
-                id INT PRIMARY KEY,
-                livro_id INT,
-                leitor_id INT,
-                data_emprestimo STRING,
-                status STRING
-            )
-        `);
-
-
-        // Tenta recuperar dados de uma utilização anterior.
-        const recuperou = restaurarDados();
-
-
-        // Se não existirem dados anteriores,
-        // cadastra alguns registros iniciais.
-        if (!recuperou) {
-            inserirDadosIniciais();
-        }
-
-
-        bancoInicializado = true;
-
-        atualizarSistema();
-
-        console.log("Banco AlaSQL criado com sucesso.");
-
-    } catch (erro) {
-
-        console.error("Erro ao criar banco:", erro);
-
-        mostrarMensagem(
-            "Erro ao criar banco: " + erro.message,
-            true
-        );
-    }
-}
-
-
-// ================================================================
-// DADOS INICIAIS
-// ================================================================
-
-/*
-    Insere alguns registros para que o aluno consiga abrir
-    o sistema e visualizar o funcionamento imediatamente.
-
-    Depois, os alunos podem apagar esses registros ou cadastrar
-    seus próprios dados.
-*/
-function inserirDadosIniciais() {
-
-    // ------------------------------
-    // LIVROS
-    // ------------------------------
-
-    alasql(`
-        INSERT INTO livros
-        (id, titulo, autor, ano, categoria)
-        VALUES
-        (1, 'Dom Casmurro', 'Machado de Assis', 1899, 'Romance')
-    `);
-
-    alasql(`
-        INSERT INTO livros
-        (id, titulo, autor, ano, categoria)
-        VALUES
-        (2, 'O Cortiço', 'Aluísio Azevedo', 1890, 'Romance')
-    `);
-
-
-    // ------------------------------
-    // LEITORES
-    // ------------------------------
-
-    alasql(`
-        INSERT INTO leitores
-        (id, nome, email, curso)
-        VALUES
-        (1, 'Ana Souza', 'ana@email.com', 'ADS')
-    `);
-
-    alasql(`
-        INSERT INTO leitores
-        (id, nome, email, curso)
-        VALUES
-        (2, 'Carlos Lima', 'carlos@email.com', 'Gestão')
-    `);
-
-
-    // ------------------------------
-    // EMPRÉSTIMO
-    // ------------------------------
-
-    alasql(`
-        INSERT INTO emprestimos
-        (id, livro_id, leitor_id, data_emprestimo, status)
-        VALUES
-        (1, 1, 1, '2026-08-01', 'Ativo')
-    `);
-
-
-    // Salva os dados iniciais.
-    salvarDados();
-}
-
-
-// ================================================================
-// LIVROS - INSERT / UPDATE / DELETE
-// ================================================================
-
-/*
-    Salva um livro.
-
-    Se o campo livroId estiver vazio:
-        INSERT
-
-    Se o campo livroId possuir um número:
-        UPDATE
-*/
-function salvarLivro(event) {
-
-    event.preventDefault();
-
-    try {
-
-        const idEdicao =
-            document.getElementById("livroId").value;
-
-        const titulo =
-            document.getElementById("titulo").value.trim();
-
-        const autor =
-            document.getElementById("autor").value.trim();
-
-        const ano =
-            Number(document.getElementById("ano").value) || 0;
-
-        const categoria =
-            document.getElementById("categoria").value.trim();
-
-
-        if (!titulo || !autor) {
-
-            mostrarMensagem(
-                "Informe o título e o autor.",
-                true
-            );
-
-            return;
-        }
-
-
-        // --------------------------------------------------------
-        // UPDATE
-        // --------------------------------------------------------
-
-        if (idEdicao) {
-
-            alasql(`
-                UPDATE livros
-                SET
-                    titulo = '${protegerTexto(titulo)}',
-                    autor = '${protegerTexto(autor)}',
-                    ano = ${ano},
-                    categoria = '${protegerTexto(categoria)}'
-                WHERE id = ${Number(idEdicao)}
-            `);
-
-            mostrarMensagem("Livro atualizado com sucesso.");
-
-        }
-
-        // --------------------------------------------------------
-        // INSERT
-        // --------------------------------------------------------
-
-        else {
-
-            const id = proximoId("livros");
-
-            alasql(`
-                INSERT INTO livros
-                (id, titulo, autor, ano, categoria)
-                VALUES (
-                    ${id},
-                    '${protegerTexto(titulo)}',
-                    '${protegerTexto(autor)}',
-                    ${ano},
-                    '${protegerTexto(categoria)}'
-                )
-            `);
-
-            mostrarMensagem("Livro cadastrado com sucesso.");
-        }
-
-
-        salvarDados();
-
-        limparLivro();
-
-        atualizarSistema();
-
-    } catch (erro) {
-
-        console.error(erro);
-
-        mostrarMensagem(
-            "Erro ao salvar livro: " + erro.message,
-            true
-        );
-    }
-}
-
-
-/*
-    Busca um livro pelo ID e coloca seus dados no formulário.
-*/
-function editarLivro(id) {
-
-    const resultado = alasql(`
-        SELECT *
-        FROM livros
-        WHERE id = ${Number(id)}
-    `);
-
-    const livro = resultado[0];
-
-    if (!livro) {
-        return;
-    }
-
-    document.getElementById("livroId").value = livro.id;
-    document.getElementById("titulo").value = livro.titulo;
-    document.getElementById("autor").value = livro.autor;
-    document.getElementById("ano").value = livro.ano || "";
-    document.getElementById("categoria").value =
-        livro.categoria || "";
-
-    document.getElementById("titulo").focus();
-}
-
-
-/*
-    Exclui um livro.
-
-    Antes de excluir, verifica se ele possui empréstimo ativo.
-*/
-function excluirLivro(id) {
-
-    const resultado = alasql(`
-        SELECT id
-        FROM emprestimos
-        WHERE livro_id = ${Number(id)}
-        AND status = 'Ativo'
-    `);
-
-    if (resultado.length > 0) {
-
-        mostrarMensagem(
-            "Este livro possui um empréstimo ativo.",
-            true
+    // Verifica se ocorreu algum erro
+    if (error) {
+
+        console.error(
+            "Erro ao carregar livros:",
+            error
         );
 
-        return;
-    }
-
-
-    if (!confirm("Deseja realmente excluir este livro?")) {
-        return;
-    }
-
-
-    alasql(`
-        DELETE FROM livros
-        WHERE id = ${Number(id)}
-    `);
-
-
-    salvarDados();
-
-    atualizarSistema();
-
-    mostrarMensagem("Livro excluído.");
-}
-
-
-/*
-    Limpa o formulário de livros.
-*/
-function limparLivro() {
-
-    document.getElementById("formLivro").reset();
-
-    document.getElementById("livroId").value = "";
-}
-
-
-// ================================================================
-// LEITORES - INSERT / UPDATE / DELETE
-// ================================================================
-
-/*
-    Salva um leitor.
-*/
-function salvarLeitor(event) {
-
-    event.preventDefault();
-
-    try {
-
-        const idEdicao =
-            document.getElementById("leitorId").value;
-
-        const nome =
-            document.getElementById("nomeLeitor").value.trim();
-
-        const email =
-            document.getElementById("emailLeitor").value.trim();
-
-        const curso =
-            document.getElementById("cursoLeitor").value.trim();
-
-
-        if (!nome) {
-
-            mostrarMensagem(
-                "Informe o nome do leitor.",
-                true
-            );
-
-            return;
-        }
-
-
-        // UPDATE
-        if (idEdicao) {
-
-            alasql(`
-                UPDATE leitores
-                SET
-                    nome = '${protegerTexto(nome)}',
-                    email = '${protegerTexto(email)}',
-                    curso = '${protegerTexto(curso)}'
-                WHERE id = ${Number(idEdicao)}
-            `);
-
-            mostrarMensagem("Leitor atualizado com sucesso.");
-        }
-
-        // INSERT
-        else {
-
-            const id = proximoId("leitores");
-
-            alasql(`
-                INSERT INTO leitores
-                (id, nome, email, curso)
-                VALUES (
-                    ${id},
-                    '${protegerTexto(nome)}',
-                    '${protegerTexto(email)}',
-                    '${protegerTexto(curso)}'
-                )
-            `);
-
-            mostrarMensagem("Leitor cadastrado com sucesso.");
-        }
-
-
-        salvarDados();
-
-        limparLeitor();
-
-        atualizarSistema();
-
-    } catch (erro) {
-
-        console.error(erro);
-
-        mostrarMensagem(
-            "Erro ao salvar leitor: " + erro.message,
-            true
-        );
-    }
-}
-
-
-/*
-    Carrega os dados de um leitor no formulário.
-*/
-function editarLeitor(id) {
-
-    const resultado = alasql(`
-        SELECT *
-        FROM leitores
-        WHERE id = ${Number(id)}
-    `);
-
-    const leitor = resultado[0];
-
-    if (!leitor) {
-        return;
-    }
-
-    document.getElementById("leitorId").value = leitor.id;
-    document.getElementById("nomeLeitor").value = leitor.nome;
-    document.getElementById("emailLeitor").value =
-        leitor.email || "";
-    document.getElementById("cursoLeitor").value =
-        leitor.curso || "";
-
-    document.getElementById("nomeLeitor").focus();
-}
-
-
-/*
-    Exclui um leitor.
-
-    Um leitor com empréstimo ativo não pode ser excluído.
-*/
-function excluirLeitor(id) {
-
-    const resultado = alasql(`
-        SELECT id
-        FROM emprestimos
-        WHERE leitor_id = ${Number(id)}
-        AND status = 'Ativo'
-    `);
-
-    if (resultado.length > 0) {
-
-        mostrarMensagem(
-            "Este leitor possui um empréstimo ativo.",
-            true
-        );
-
-        return;
-    }
-
-
-    if (!confirm("Deseja realmente excluir este leitor?")) {
-        return;
-    }
-
-
-    alasql(`
-        DELETE FROM leitores
-        WHERE id = ${Number(id)}
-    `);
-
-
-    salvarDados();
-
-    atualizarSistema();
-
-    mostrarMensagem("Leitor excluído.");
-}
-
-
-/*
-    Limpa o formulário de leitores.
-*/
-function limparLeitor() {
-
-    document.getElementById("formLeitor").reset();
-
-    document.getElementById("leitorId").value = "";
-}
-
-
-// ================================================================
-// EMPRÉSTIMOS
-// ================================================================
-
-/*
-    Registra um novo empréstimo.
-
-    Aqui aparece um dos conceitos importantes:
-    a tabela emprestimos utiliza o ID do livro e o ID do leitor.
-*/
-function salvarEmprestimo(event) {
-
-    event.preventDefault();
-
-    try {
-
-        const livroId =
-            Number(document.getElementById("livroEmprestimo").value);
-
-        const leitorId =
-            Number(document.getElementById("leitorEmprestimo").value);
-
-        const data =
-            document.getElementById("dataEmprestimo").value;
-
-
-        if (!livroId || !leitorId || !data) {
-
-            mostrarMensagem(
-                "Preencha todos os campos.",
-                true
-            );
-
-            return;
-        }
-
-
-        // Verifica se o livro já está emprestado.
-        const existente = alasql(`
-            SELECT id
-            FROM emprestimos
-            WHERE livro_id = ${livroId}
-            AND status = 'Ativo'
-        `);
-
-
-        if (existente.length > 0) {
-
-            mostrarMensagem(
-                "Este livro já está emprestado.",
-                true
-            );
-
-            return;
-        }
-
-
-        const id = proximoId("emprestimos");
-
-
-        // INSERT do empréstimo.
-        alasql(`
-            INSERT INTO emprestimos
-            (id, livro_id, leitor_id, data_emprestimo, status)
-            VALUES (?, ?, ?, ?, ?)
-        `, [
-            id,
-            livroId,
-            leitorId,
-            data,
-            "Ativo"
-        ]);
-
-
-        salvarDados();
-
-        document.getElementById("formEmprestimo").reset();
-
-        definirDataAtual();
-
-        atualizarSistema();
-
-        mostrarMensagem(
-            "Empréstimo registrado com sucesso."
-        );
-
-    } catch (erro) {
-
-        console.error(erro);
-
-        mostrarMensagem(
-            "Erro ao registrar empréstimo: " +
-            erro.message,
-            true
-        );
-    }
-}
-
-
-/*
-    Registra a devolução de um livro.
-
-    Aqui utilizamos UPDATE.
-*/
-function devolverLivro(id) {
-
-    alasql(`
-        UPDATE emprestimos
-        SET status = 'Devolvido'
-        WHERE id = ${Number(id)}
-    `);
-
-
-    salvarDados();
-
-    atualizarSistema();
-
-    mostrarMensagem(
-        "Livro devolvido com sucesso."
-    );
-}
-
-
-// ================================================================
-// CONSULTAS / SELECT
-// ================================================================
-
-/*
-    Consulta todos os livros e coloca o resultado na tabela HTML.
-
-    SQL utilizado:
-    SELECT * FROM livros ORDER BY titulo
-*/
-function atualizarLivros() {
-
-    const tabela =
-        document.getElementById("tabelaLivros");
-
-
-    const livros = alasql(`
-        SELECT *
-        FROM livros
-        ORDER BY titulo
-    `);
-
-
-    if (livros.length === 0) {
-
-        tabela.innerHTML = `
-            <tr>
-                <td colspan="6" class="vazio">
-                    Nenhum livro cadastrado.
-                </td>
-            </tr>
+        document.getElementById(
+            "listaLivros"
+        ).innerHTML = `
+            <p class="mensagem">
+                Erro ao carregar os livros.
+            </p>
         `;
 
         return;
+
     }
 
 
-    tabela.innerHTML = livros.map(livro => `
+    const lista =
+        document.getElementById(
+            "listaLivros"
+        );
 
-        <tr>
 
-            <td>${livro.id}</td>
+    // Limpa a lista
+    lista.innerHTML = "";
 
-            <td>
-                <strong>
-                    ${protegerHTML(livro.titulo)}
-                </strong>
-            </td>
 
-            <td>
-                ${protegerHTML(livro.autor)}
-            </td>
+    // Verifica se existem livros
+    if (!data || data.length === 0) {
 
-            <td>
-                ${livro.ano || "-"}
-            </td>
+        lista.innerHTML = `
+            <p class="mensagem-vazia">
+                Nenhum livro cadastrado.
+            </p>
+        `;
 
-            <td>
-                ${protegerHTML(livro.categoria || "-")}
-            </td>
+    }
 
-            <td>
 
-                <button
-                    class="btn pequeno secundario"
-                    onclick="editarLivro(${livro.id})">
-                    Editar
-                </button>
+    // Percorre os livros
+    data.forEach(livro => {
 
-                <button
-                    class="btn pequeno excluir"
+        const card =
+            document.createElement("div");
+
+
+        card.className = "card";
+
+
+        const status =
+            livro.disponivel
+                ? `
+                    <span class="status-disponivel">
+                        Disponível
+                    </span>
+                  `
+                : `
+                    <span class="status-emprestado">
+                        Emprestado
+                    </span>
+                  `;
+
+
+        card.innerHTML = `
+
+            <h4>
+                📖 ${livro.titulo}
+            </h4>
+
+            <p>
+                <strong>Autor:</strong>
+                ${livro.autor}
+            </p>
+
+            <p>
+                <strong>Ano:</strong>
+                ${livro.ano || "Não informado"}
+            </p>
+
+            <p>
+                <strong>Status:</strong>
+                ${status}
+            </p>
+
+            ${
+                livro.disponivel
+
+                ?
+
+                `<button
+                    class="btn-excluir"
                     onclick="excluirLivro(${livro.id})">
-                    Excluir
-                </button>
 
-            </td>
+                    Excluir livro
 
-        </tr>
+                </button>`
 
-    `).join("");
-}
+                :
 
+                `
+                    <small>
+                        O livro está emprestado
+                        e não pode ser excluído.
+                    </small>
+                `
+            }
 
-/*
-    Consulta todos os leitores.
-*/
-function atualizarLeitores() {
-
-    const tabela =
-        document.getElementById("tabelaLeitores");
-
-
-    const leitores = alasql(`
-        SELECT *
-        FROM leitores
-        ORDER BY nome
-    `);
-
-
-    if (leitores.length === 0) {
-
-        tabela.innerHTML = `
-            <tr>
-                <td colspan="5" class="vazio">
-                    Nenhum leitor cadastrado.
-                </td>
-            </tr>
         `;
 
+
+        lista.appendChild(card);
+
+    });
+
+
+    // Atualiza o campo de seleção
+    atualizarSelectLivros(data);
+
+}
+
+
+
+// =====================================================
+// CADASTRAR LIVRO
+// =====================================================
+
+document
+    .getElementById("formLivro")
+    .addEventListener(
+        "submit",
+        async function(event) {
+
+            // Impede o recarregamento da página
+            event.preventDefault();
+
+
+            // Captura os valores do formulário
+            const titulo =
+                document.getElementById(
+                    "titulo"
+                ).value.trim();
+
+
+            const autor =
+                document.getElementById(
+                    "autor"
+                ).value.trim();
+
+
+            const ano =
+                document.getElementById(
+                    "ano"
+                ).value;
+
+
+            // Validação básica
+            if (!titulo || !autor) {
+
+                alert(
+                    "Informe o título e o autor."
+                );
+
+                return;
+
+            }
+
+
+            // Insere o livro no Supabase
+            const { error } =
+
+                await supabaseClient
+
+                    .from("livros")
+
+                    .insert({
+
+                        titulo: titulo,
+
+                        autor: autor,
+
+                        ano: ano
+                            ? Number(ano)
+                            : null,
+
+                        disponivel: true
+
+                    });
+
+
+            // Verifica erro
+            if (error) {
+
+                console.error(
+                    "Erro ao cadastrar livro:",
+                    error
+                );
+
+                alert(
+                    "Erro ao cadastrar o livro."
+                );
+
+                return;
+
+            }
+
+
+            alert(
+                "Livro cadastrado com sucesso!"
+            );
+
+
+            // Limpa o formulário
+            this.reset();
+
+
+            // Atualiza a lista
+            carregarLivros();
+
+        }
+    );
+
+
+
+// =====================================================
+// EXCLUIR LIVRO
+// =====================================================
+
+async function excluirLivro(id) {
+
+    const confirmar =
+        confirm(
+            "Deseja realmente excluir este livro?"
+        );
+
+
+    if (!confirmar) {
+
         return;
+
     }
 
 
-    tabela.innerHTML = leitores.map(leitor => `
+    // Verifica se existem empréstimos
+    const { data: emprestimos, error: erroBusca } =
 
-        <tr>
+        await supabaseClient
 
-            <td>${leitor.id}</td>
+            .from("emprestimos")
 
-            <td>
-                <strong>
-                    ${protegerHTML(leitor.nome)}
-                </strong>
-            </td>
+            .select("id")
 
-            <td>
-                ${protegerHTML(leitor.email || "-")}
-            </td>
-
-            <td>
-                ${protegerHTML(leitor.curso || "-")}
-            </td>
-
-            <td>
-
-                <button
-                    class="btn pequeno secundario"
-                    onclick="editarLeitor(${leitor.id})">
-                    Editar
-                </button>
-
-                <button
-                    class="btn pequeno excluir"
-                    onclick="excluirLeitor(${leitor.id})">
-                    Excluir
-                </button>
-
-            </td>
-
-        </tr>
-
-    `).join("");
-}
+            .eq("livro_id", id);
 
 
-/*
-    Consulta os empréstimos utilizando JOIN.
+    if (erroBusca) {
 
-    Este é um dos principais exemplos para explicar
-    relacionamento entre tabelas.
+        console.error(erroBusca);
 
-    A tabela emprestimos possui:
-        livro_id
-        leitor_id
-
-    O JOIN permite descobrir:
-        título do livro
-        nome do leitor
-*/
-function atualizarEmprestimos() {
-
-    const tabela =
-        document.getElementById("tabelaEmprestimos");
-
-
-    const emprestimos = alasql(`
-
-        SELECT
-            e.id,
-            l.titulo AS livro,
-            r.nome AS leitor,
-            e.data_emprestimo,
-            e.status
-
-        FROM emprestimos e
-
-        JOIN livros l
-            ON e.livro_id = l.id
-
-        JOIN leitores r
-            ON e.leitor_id = r.id
-
-        ORDER BY e.id DESC
-
-    `);
-
-
-    if (emprestimos.length === 0) {
-
-        tabela.innerHTML = `
-            <tr>
-                <td colspan="6" class="vazio">
-                    Nenhum empréstimo cadastrado.
-                </td>
-            </tr>
-        `;
+        alert(
+            "Não foi possível verificar os empréstimos."
+        );
 
         return;
+
     }
 
 
-    tabela.innerHTML = emprestimos.map(item => `
+    // Não permite excluir livro relacionado
+    if (emprestimos && emprestimos.length > 0) {
 
-        <tr>
+        alert(
+            "Este livro possui histórico de " +
+            "empréstimos e não pode ser excluído."
+        );
 
-            <td>${item.id}</td>
-
-            <td>
-                ${protegerHTML(item.livro)}
-            </td>
-
-            <td>
-                ${protegerHTML(item.leitor)}
-            </td>
-
-            <td>
-                ${formatarData(item.data_emprestimo)}
-            </td>
-
-            <td>
-                ${item.status}
-            </td>
-
-            <td>
-
-                ${
-                    item.status === "Ativo"
-
-                    ?
-
-                    `<button
-                        class="btn pequeno primario"
-                        onclick="devolverLivro(${item.id})">
-                        Devolver
-                    </button>`
-
-                    :
-
-                    "Finalizado"
-                }
-
-            </td>
-
-        </tr>
-
-    `).join("");
-}
-
-
-/*
-    Atualiza os <select> de livros e leitores.
-
-    Os dados são obtidos por SELECT no AlaSQL.
-*/
-function atualizarSelects() {
-
-    const livros = alasql(`
-        SELECT id, titulo
-        FROM livros
-        ORDER BY titulo
-    `);
-
-
-    const leitores = alasql(`
-        SELECT id, nome
-        FROM leitores
-        ORDER BY nome
-    `);
-
-
-    const selectLivro =
-        document.getElementById("livroEmprestimo");
-
-    const selectLeitor =
-        document.getElementById("leitorEmprestimo");
-
-
-    selectLivro.innerHTML =
-        `<option value="">Selecione um livro</option>` +
-
-        livros.map(livro => `
-
-            <option value="${livro.id}">
-                ${protegerHTML(livro.titulo)}
-            </option>
-
-        `).join("");
-
-
-    selectLeitor.innerHTML =
-        `<option value="">Selecione um leitor</option>` +
-
-        leitores.map(leitor => `
-
-            <option value="${leitor.id}">
-                ${protegerHTML(leitor.nome)}
-            </option>
-
-        `).join("");
-}
-
-
-/*
-    Atualiza os quatro números do resumo.
-
-    Aqui são utilizados COUNT e WHERE.
-*/
-function atualizarResumo() {
-
-    // Consultamos os registros diretamente e usamos .length
-    // no JavaScript. Assim evitamos COUNT(*)/alias, que pode
-    // gerar erro de parser em determinadas versões/configurações
-    // do AlaSQL.
-    const livros = alasql(`
-        SELECT id
-        FROM livros
-    `).length;
-
-    const leitores = alasql(`
-        SELECT id
-        FROM leitores
-    `).length;
-
-    const emprestimos = alasql(`
-        SELECT id
-        FROM emprestimos
-    `).length;
-
-    const ativos = alasql(`
-        SELECT id
-        FROM emprestimos
-        WHERE status = 'Ativo'
-    `).length;
-
-    document.getElementById("totalLivros").textContent =
-        livros;
-
-    document.getElementById("totalLeitores").textContent =
-        leitores;
-
-    document.getElementById("totalEmprestimos").textContent =
-        emprestimos;
-
-    document.getElementById("totalAtivos").textContent =
-        ativos;
-}
-
-
-// ================================================================
-// ATUALIZAÇÃO GERAL
-// ================================================================
-
-/*
-    Executa novamente os SELECTs e atualiza toda a interface.
-*/
-function atualizarSistema() {
-
-    if (!bancoInicializado) {
         return;
-    }
 
-    atualizarLivros();
-    atualizarLeitores();
-    atualizarEmprestimos();
-    atualizarSelects();
-    atualizarResumo();
-}
-
-
-// ================================================================
-// FUNÇÕES DE DATA
-// ================================================================
-
-/*
-    Coloca a data atual no campo de empréstimo.
-*/
-function definirDataAtual() {
-
-    const campo =
-        document.getElementById("dataEmprestimo");
-
-    const hoje = new Date();
-
-    const ano = hoje.getFullYear();
-
-    const mes =
-        String(hoje.getMonth() + 1)
-            .padStart(2, "0");
-
-    const dia =
-        String(hoje.getDate())
-            .padStart(2, "0");
-
-
-    campo.value = `${ano}-${mes}-${dia}`;
-}
-
-
-/*
-    Converte:
-
-    2026-08-09
-
-    para:
-
-    09/08/2026
-*/
-function formatarData(data) {
-
-    if (!data) {
-        return "-";
-    }
-
-    const partes =
-        String(data).split("-");
-
-
-    if (partes.length !== 3) {
-        return data;
     }
 
 
-    return `
-        ${partes[2]}/${partes[1]}/${partes[0]}
-    `;
+    // Exclui o livro
+    const { error } =
+
+        await supabaseClient
+
+            .from("livros")
+
+            .delete()
+
+            .eq("id", id);
+
+
+    if (error) {
+
+        console.error(
+            "Erro ao excluir livro:",
+            error
+        );
+
+        alert(
+            "Não foi possível excluir o livro."
+        );
+
+        return;
+
+    }
+
+
+    alert(
+        "Livro excluído com sucesso!"
+    );
+
+
+    carregarLivros();
+
 }
 
 
-// ================================================================
-// NAVEGAÇÃO
-// ================================================================
 
-/*
-    Controla as três telas:
+// =====================================================
+// USUÁRIOS
+// =====================================================
 
-    Livros
-    Leitores
-    Empréstimos
-*/
-function configurarMenu() {
+async function carregarUsuarios() {
 
-    const botoes =
-        document.querySelectorAll(".menu-btn");
+    const { data, error } =
 
+        await supabaseClient
 
-    botoes.forEach(botao => {
+            .from("usuarios")
 
-        botao.addEventListener("click", () => {
+            .select("*")
 
-            const tela =
-                botao.dataset.tela;
-
-
-            // Remove "active" de todos os botões.
-            botoes.forEach(item => {
-                item.classList.remove("active");
+            .order("nome", {
+                ascending: true
             });
 
 
-            // Remove "active" de todas as telas.
-            document.querySelectorAll(".tela")
-                .forEach(item => {
-                    item.classList.remove("active");
-                });
+    if (error) {
+
+        console.error(
+            "Erro ao carregar usuários:",
+            error
+        );
+
+        document.getElementById(
+            "listaUsuarios"
+        ).innerHTML = `
+            <p class="mensagem">
+                Erro ao carregar os usuários.
+            </p>
+        `;
+
+        return;
+
+    }
 
 
-            // Ativa o botão selecionado.
-            botao.classList.add("active");
+    const lista =
+        document.getElementById(
+            "listaUsuarios"
+        );
 
 
-            // Ativa a tela correspondente.
-            document
-                .getElementById(tela)
-                .classList.add("active");
-        });
+    lista.innerHTML = "";
+
+
+    if (!data || data.length === 0) {
+
+        lista.innerHTML = `
+            <p class="mensagem-vazia">
+                Nenhum usuário cadastrado.
+            </p>
+        `;
+
+    }
+
+
+    data.forEach(usuario => {
+
+        const card =
+            document.createElement("div");
+
+
+        card.className = "card";
+
+
+        card.innerHTML = `
+
+            <h4>
+                👤 ${usuario.nome}
+            </h4>
+
+            <p>
+                <strong>E-mail:</strong>
+                ${usuario.email || "Não informado"}
+            </p>
+
+            <button
+                class="btn-excluir"
+                onclick="excluirUsuario(${usuario.id})">
+
+                Excluir usuário
+
+            </button>
+
+        `;
+
+
+        lista.appendChild(card);
+
     });
+
+
+    // Atualiza o campo de seleção
+    atualizarSelectUsuarios(data);
+
 }
 
 
-// ================================================================
-// LIVROS DE EXEMPLO
-// ================================================================
 
-/*
-    Adiciona três livros de exemplo.
+// =====================================================
+// CADASTRAR USUÁRIO
+// =====================================================
 
-    Esta função é apenas para facilitar os testes durante a aula.
-*/
-function inserirExemplos() {
+document
+    .getElementById("formUsuario")
+    .addEventListener(
+        "submit",
+        async function(event) {
 
-    const exemplos = [
-
-        [
-            "Vidas Secas",
-            "Graciliano Ramos",
-            1938,
-            "Romance"
-        ],
-
-        [
-            "Capitães da Areia",
-            "Jorge Amado",
-            1937,
-            "Romance"
-        ],
-
-        [
-            "O Alienista",
-            "Machado de Assis",
-            1882,
-            "Conto"
-        ]
-    ];
+            event.preventDefault();
 
 
-    exemplos.forEach(exemplo => {
-
-        const id = proximoId("livros");
-
-
-        alasql(`
-            INSERT INTO livros
-            (id, titulo, autor, ano, categoria)
-            VALUES (
-                ${id},
-                '${protegerTexto(exemplo[0])}',
-                '${protegerTexto(exemplo[1])}',
-                ${exemplo[2]},
-                '${protegerTexto(exemplo[3])}'
-            )
-        `);
-    });
+            const nome =
+                document.getElementById(
+                    "nome"
+                ).value.trim();
 
 
-    salvarDados();
+            const email =
+                document.getElementById(
+                    "email"
+                ).value.trim();
 
-    atualizarSistema();
 
-    mostrarMensagem(
-        "Livros de exemplo adicionados."
+            if (!nome) {
+
+                alert(
+                    "Informe o nome do usuário."
+                );
+
+                return;
+
+            }
+
+
+            const { error } =
+
+                await supabaseClient
+
+                    .from("usuarios")
+
+                    .insert({
+
+                        nome: nome,
+
+                        email: email || null
+
+                    });
+
+
+            if (error) {
+
+                console.error(
+                    "Erro ao cadastrar usuário:",
+                    error
+                );
+
+                alert(
+                    "Erro ao cadastrar usuário."
+                );
+
+                return;
+
+            }
+
+
+            alert(
+                "Usuário cadastrado com sucesso!"
+            );
+
+
+            this.reset();
+
+
+            carregarUsuarios();
+
+        }
     );
+
+
+
+// =====================================================
+// EXCLUIR USUÁRIO
+// =====================================================
+
+async function excluirUsuario(id) {
+
+    const confirmar =
+        confirm(
+            "Deseja realmente excluir este usuário?"
+        );
+
+
+    if (!confirmar) {
+
+        return;
+
+    }
+
+
+    // Verifica se o usuário possui empréstimos
+    const { data: emprestimos, error: erroBusca } =
+
+        await supabaseClient
+
+            .from("emprestimos")
+
+            .select("id")
+
+            .eq("usuario_id", id);
+
+
+    if (erroBusca) {
+
+        console.error(erroBusca);
+
+        alert(
+            "Não foi possível verificar os empréstimos."
+        );
+
+        return;
+
+    }
+
+
+    if (emprestimos && emprestimos.length > 0) {
+
+        alert(
+            "Este usuário possui histórico de " +
+            "empréstimos e não pode ser excluído."
+        );
+
+        return;
+
+    }
+
+
+    // Exclui o usuário
+    const { error } =
+
+        await supabaseClient
+
+            .from("usuarios")
+
+            .delete()
+
+            .eq("id", id);
+
+
+    if (error) {
+
+        console.error(
+            "Erro ao excluir usuário:",
+            error
+        );
+
+        alert(
+            "Não foi possível excluir o usuário."
+        );
+
+        return;
+
+    }
+
+
+    alert(
+        "Usuário excluído com sucesso!"
+    );
+
+
+    carregarUsuarios();
+
 }
 
 
-// ================================================================
-// EVENTOS
-// ================================================================
 
-/*
-    DOMContentLoaded garante que o JavaScript só comece
-    depois que o HTML estiver carregado.
-*/
-document.addEventListener("DOMContentLoaded", () => {
+// =====================================================
+// SELECT DE LIVROS
+// =====================================================
 
+function atualizarSelectLivros(livros) {
 
-    // Configura o menu.
-    configurarMenu();
-
-
-    // Formulário de livros.
-    document
-        .getElementById("formLivro")
-        .addEventListener(
-            "submit",
-            salvarLivro
+    const select =
+        document.getElementById(
+            "livroEmprestimo"
         );
 
 
-    // Botão para limpar formulário de livros.
-    document
-        .getElementById("btnLimparLivro")
-        .addEventListener(
-            "click",
-            limparLivro
+    select.innerHTML = `
+        <option value="">
+            Selecione um livro
+        </option>
+    `;
+
+
+    // Somente livros disponíveis aparecem
+    livros
+
+        .filter(livro => livro.disponivel === true)
+
+        .forEach(livro => {
+
+            const option =
+                document.createElement(
+                    "option"
+                );
+
+
+            option.value = livro.id;
+
+
+            option.textContent =
+                `${livro.titulo} - ${livro.autor}`;
+
+
+            select.appendChild(option);
+
+        });
+
+}
+
+
+
+// =====================================================
+// SELECT DE USUÁRIOS
+// =====================================================
+
+function atualizarSelectUsuarios(usuarios) {
+
+    const select =
+        document.getElementById(
+            "usuarioEmprestimo"
         );
 
 
-    // Formulário de leitores.
-    document
-        .getElementById("formLeitor")
-        .addEventListener(
-            "submit",
-            salvarLeitor
+    select.innerHTML = `
+        <option value="">
+            Selecione um usuário
+        </option>
+    `;
+
+
+    usuarios.forEach(usuario => {
+
+        const option =
+            document.createElement(
+                "option"
+            );
+
+
+        option.value = usuario.id;
+
+
+        option.textContent =
+            usuario.nome;
+
+
+        select.appendChild(option);
+
+    });
+
+}
+
+
+
+// =====================================================
+// REGISTRAR EMPRÉSTIMO
+// =====================================================
+
+document
+    .getElementById("formEmprestimo")
+    .addEventListener(
+        "submit",
+        async function(event) {
+
+            event.preventDefault();
+
+
+            // Captura os IDs selecionados
+            const livroId =
+                Number(
+                    document.getElementById(
+                        "livroEmprestimo"
+                    ).value
+                );
+
+
+            const usuarioId =
+                Number(
+                    document.getElementById(
+                        "usuarioEmprestimo"
+                    ).value
+                );
+
+
+            // Validação
+            if (!livroId || !usuarioId) {
+
+                alert(
+                    "Selecione o livro e o usuário."
+                );
+
+                return;
+
+            }
+
+
+            // =================================================
+            // VERIFICAR LIVRO
+            // =================================================
+
+            const {
+                data: livro,
+                error: erroLivro
+            } =
+
+                await supabaseClient
+
+                    .from("livros")
+
+                    .select(
+                        "id, titulo, disponivel"
+                    )
+
+                    .eq("id", livroId)
+
+                    .single();
+
+
+            if (erroLivro || !livro) {
+
+                console.error(erroLivro);
+
+                alert(
+                    "Livro não encontrado."
+                );
+
+                return;
+
+            }
+
+
+            // Verifica disponibilidade
+            if (!livro.disponivel) {
+
+                alert(
+                    "Este livro já está emprestado."
+                );
+
+                carregarLivros();
+
+                return;
+
+            }
+
+
+            // =================================================
+            // VERIFICAR USUÁRIO
+            // =================================================
+
+            const {
+                data: usuario,
+                error: erroUsuario
+            } =
+
+                await supabaseClient
+
+                    .from("usuarios")
+
+                    .select("id")
+
+                    .eq("id", usuarioId)
+
+                    .single();
+
+
+            if (erroUsuario || !usuario) {
+
+                alert(
+                    "Usuário não encontrado."
+                );
+
+                return;
+
+            }
+
+
+            // =================================================
+            // REGISTRAR EMPRÉSTIMO
+            // =================================================
+
+            const {
+                data: novoEmprestimo,
+                error: erroEmprestimo
+            } =
+
+                await supabaseClient
+
+                    .from("emprestimos")
+
+                    .insert({
+
+                        livro_id: livroId,
+
+                        usuario_id: usuarioId,
+
+                        data_emprestimo:
+                            new Date()
+                                .toISOString()
+                                .split("T")[0],
+
+                        devolvido: false
+
+                    })
+
+                    .select();
+
+
+            if (erroEmprestimo) {
+
+                console.error(
+                    "Erro ao registrar empréstimo:",
+                    erroEmprestimo
+                );
+
+                alert(
+                    "Erro ao registrar empréstimo."
+                );
+
+                return;
+
+            }
+
+
+            // =================================================
+            // ATUALIZAR DISPONIBILIDADE
+            // =================================================
+
+            const {
+                error: erroAtualizacao
+            } =
+
+                await supabaseClient
+
+                    .from("livros")
+
+                    .update({
+
+                        disponivel: false
+
+                    })
+
+                    .eq("id", livroId);
+
+
+            if (erroAtualizacao) {
+
+                console.error(
+                    "Erro ao atualizar livro:",
+                    erroAtualizacao
+                );
+
+                alert(
+                    "O empréstimo foi registrado, " +
+                    "mas houve erro ao atualizar " +
+                    "a disponibilidade do livro."
+                );
+
+                return;
+
+            }
+
+
+            alert(
+                "Empréstimo registrado com sucesso!"
+            );
+
+
+            // Limpa o formulário
+            this.reset();
+
+
+            // Atualiza as informações
+            carregarLivros();
+
+            carregarEmprestimos();
+
+        }
+    );
+
+
+
+// =====================================================
+// CARREGAR EMPRÉSTIMOS
+// =====================================================
+
+async function carregarEmprestimos() {
+
+    const {
+        data,
+        error
+    } =
+
+        await supabaseClient
+
+            .from("emprestimos")
+
+            .select(`
+                id,
+                livro_id,
+                usuario_id,
+                data_emprestimo,
+                data_devolucao,
+                devolvido,
+                livros (
+                    titulo,
+                    autor
+                ),
+                usuarios (
+                    nome,
+                    email
+                )
+            `)
+
+            .order(
+                "data_emprestimo",
+                {
+                    ascending: false
+                }
+            );
+
+
+    if (error) {
+
+        console.error(
+            "Erro ao carregar empréstimos:",
+            error
+        );
+
+        document.getElementById(
+            "listaEmprestimos"
+        ).innerHTML = `
+            <p class="mensagem">
+                Erro ao carregar empréstimos.
+            </p>
+        `;
+
+        return;
+
+    }
+
+
+    const lista =
+        document.getElementById(
+            "listaEmprestimos"
         );
 
 
-    // Botão para limpar formulário de leitores.
-    document
-        .getElementById("btnLimparLeitor")
-        .addEventListener(
-            "click",
-            limparLeitor
+    lista.innerHTML = "";
+
+
+    if (!data || data.length === 0) {
+
+        lista.innerHTML = `
+            <p class="mensagem-vazia">
+                Nenhum empréstimo registrado.
+            </p>
+        `;
+
+        return;
+
+    }
+
+
+    // Percorre os empréstimos
+    data.forEach(emprestimo => {
+
+        const card =
+            document.createElement("div");
+
+
+        card.className = "card";
+
+
+        // Define o status
+        const status =
+            emprestimo.devolvido
+
+                ?
+
+                `
+                <span class="status-devolvido">
+                    Devolvido
+                </span>
+                `
+
+                :
+
+                `
+                <span class="status-emprestado">
+                    Em aberto
+                </span>
+                `;
+
+
+        // Botão somente para empréstimos em aberto
+        const botaoDevolucao =
+
+            !emprestimo.devolvido
+
+                ?
+
+                `
+                <button
+                    class="btn-devolver"
+                    onclick="devolverLivro(
+                        ${emprestimo.id},
+                        ${emprestimo.livro_id}
+                    )">
+
+                    Registrar devolução
+
+                </button>
+                `
+
+                :
+
+                "";
+
+
+        card.innerHTML = `
+
+            <h4>
+                📖 ${emprestimo.livros.titulo}
+            </h4>
+
+            <p>
+                <strong>Autor:</strong>
+                ${emprestimo.livros.autor}
+            </p>
+
+            <p>
+                <strong>Usuário:</strong>
+                ${emprestimo.usuarios.nome}
+            </p>
+
+            <p>
+                <strong>Data do empréstimo:</strong>
+                ${formatarData(
+                    emprestimo.data_emprestimo
+                )}
+            </p>
+
+            <p>
+                <strong>Data da devolução:</strong>
+                ${
+                    emprestimo.data_devolucao
+                        ? formatarData(
+                            emprestimo.data_devolucao
+                          )
+                        : "Ainda não devolvido"
+                }
+            </p>
+
+            <p>
+                <strong>Status:</strong>
+                ${status}
+            </p>
+
+            ${botaoDevolucao}
+
+        `;
+
+
+        lista.appendChild(card);
+
+    });
+
+}
+
+
+
+// =====================================================
+// REGISTRAR DEVOLUÇÃO
+// =====================================================
+
+async function devolverLivro(
+    emprestimoId,
+    livroId
+) {
+
+    const confirmar =
+        confirm(
+            "Deseja registrar a devolução deste livro?"
         );
 
 
-    // Formulário de empréstimos.
-    document
-        .getElementById("formEmprestimo")
-        .addEventListener(
-            "submit",
-            salvarEmprestimo
+    if (!confirmar) {
+
+        return;
+
+    }
+
+
+    // =================================================
+    // ATUALIZAR EMPRÉSTIMO
+    // =================================================
+
+    const {
+        error: erroEmprestimo
+    } =
+
+        await supabaseClient
+
+            .from("emprestimos")
+
+            .update({
+
+                devolvido: true,
+
+                data_devolucao:
+                    new Date()
+                        .toISOString()
+                        .split("T")[0]
+
+            })
+
+            .eq("id", emprestimoId);
+
+
+    if (erroEmprestimo) {
+
+        console.error(
+            "Erro ao registrar devolução:",
+            erroEmprestimo
         );
 
-
-    // Botão para inserir livros de exemplo.
-    document
-        .getElementById("btnExemplos")
-        .addEventListener(
-            "click",
-            inserirExemplos
+        alert(
+            "Erro ao registrar devolução."
         );
 
+        return;
 
-    // Define a data atual.
-    definirDataAtual();
+    }
 
 
-    // Cria o banco e as tabelas.
-    criarBanco();
+    // =================================================
+    // DEVOLVER DISPONIBILIDADE DO LIVRO
+    // =================================================
 
-});
+    const {
+        error: erroLivro
+    } =
+
+        await supabaseClient
+
+            .from("livros")
+
+            .update({
+
+                disponivel: true
+
+            })
+
+            .eq("id", livroId);
+
+
+    if (erroLivro) {
+
+        console.error(
+            "Erro ao atualizar livro:",
+            erroLivro
+        );
+
+        alert(
+            "A devolução foi registrada, " +
+            "mas houve erro ao atualizar " +
+            "a disponibilidade do livro."
+        );
+
+        return;
+
+    }
+
+
+    alert(
+        "Devolução registrada com sucesso!"
+    );
+
+
+    // Atualiza as telas
+    carregarLivros();
+
+    carregarEmprestimos();
+
+}
+
+
+
+// =====================================================
+// FORMATAR DATA
+// =====================================================
+
+function formatarData(data) {
+
+    if (!data) {
+
+        return "Não informado";
+
+    }
+
+
+    // Evita problemas de fuso horário
+    const partes =
+        data.split("-");
+
+
+    if (partes.length === 3) {
+
+        return `
+            ${partes[2]}/${partes[1]}/${partes[0]}
+        `;
+
+    }
+
+
+    return data;
+
+}
+
+
+
+// =====================================================
+// INICIALIZAÇÃO DO SISTEMA
+// =====================================================
+
+// Carrega os dados quando a página é aberta
+
+carregarLivros();
+
+carregarUsuarios();
+
+carregarEmprestimos();
